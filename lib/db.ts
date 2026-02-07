@@ -138,3 +138,25 @@ export async function renameChat(id: string, title: string): Promise<void> {
     data: { title },
   });
 }
+
+// BI Dashboard operations
+export async function createBIDashboard(userId: string, title: string, config: string): Promise<string> {
+  const dashboard = await prisma.bIDashboard.create({
+    data: {
+      title,
+      config,
+      userId,
+    },
+  });
+  return dashboard.id;
+}
+
+export async function getBIDashboard(id: string) {
+  const dashboard = await prisma.bIDashboard.findUnique({
+    where: { id },
+  });
+  if (!dashboard) {
+    throw new Error('BI Dashboard not found');
+  }
+  return dashboard;
+}
