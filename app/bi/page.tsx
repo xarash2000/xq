@@ -52,10 +52,11 @@ export default function BIPageRoute() {
         throw new Error(errorData.error || "Failed to generate dashboard");
       }
 
-      // Read the stream and look for BI ID message
+      // Read the stream and look for saveBIConfig tool result with BI ID
       const reader = response.body?.getReader();
       const decoder = new TextDecoder();
       let biId: string | null = null;
+      let fullStream = "";
 
       if (reader) {
         while (true) {
@@ -63,13 +64,24 @@ export default function BIPageRoute() {
           if (done) break;
 
           const chunk = decoder.decode(value, { stream: true });
+          fullStream += chunk;
           
-          // Look for BI ID in the stream (format: 0:{"type":"bi-id","biId":"..."}\n)
-          const biIdMatch = chunk.match(/"biId":"([^"]+)"/);
-          if (biIdMatch) {
-            biId = biIdMatch[1];
-            break;
+          // Look for saveBIConfig tool result in the stream
+          // The stream format includes tool results, look for "biId" in saveBIConfig results
+          const biIdPatterns = [
+            /"biId"\s*:\s*"([^"]+)"/,  // Direct biId match
+            /saveBIConfig.*?"biId"\s*:\s*"([^"]+)"/,  // In saveBIConfig context
+          ];
+          
+          for (const pattern of biIdPatterns) {
+            const match = fullStream.match(pattern);
+            if (match && match[1]) {
+              biId = match[1];
+              break;
+            }
           }
+          
+          if (biId) break;
         }
       }
 
@@ -79,8 +91,16 @@ export default function BIPageRoute() {
         return;
       }
 
-      // If no BI ID found, show message
-      setError("Dashboard is being generated. Please wait a moment and try refreshing.");
+      // If no BI ID found, the AI might still be processing
+      // Wait a bit and check if we can extract it from the full stream
+      setTimeout(() => {
+        const finalMatch = fullStream.match(/"biId"\s*:\s*"([^"]+)"/);
+        if (finalMatch && finalMatch[1]) {
+          router.push(`/bi/${finalMatch[1]}`);
+        } else {
+          setError("Dashboard generation completed. If a dashboard was created, check your recent dashboards or try again.");
+        }
+      }, 1000);
 
     } catch (error: any) {
       console.error("Failed to generate BI dashboard:", error);

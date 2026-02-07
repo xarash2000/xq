@@ -14,14 +14,13 @@ import {
 import { requireAuth } from '@/lib/auth/auth';
 import { getEffectiveOpenAIConfig } from '@/lib/services/settings';
 import { mssqlTools } from '@/lib/rdbms/mssql/tools';
-import { biTools } from '@/lib/bi/tools';
-import { generateObject } from "ai";
-import { biConfigSchema } from "@/lib/types/bi";
-import { createBIDashboard } from "@/lib/db";
+import { tool } from 'ai';
+import { z } from 'zod';
+import { biConfigSchema } from '@/lib/types/bi';
 
-const tools = { ...mssqlTools, ...biTools } as const;
+// Tools will be created with user context below
 
-export type BITools = InferUITools<typeof tools>;
+export type BITools = InferUITools<typeof mssqlTools & { saveBIConfig: any }>;
 export type BIMessage = UIMessage<never, UIDataTypes, BITools>;
 
 export const POST = requireAuth(async (req, user) => {
@@ -33,12 +32,32 @@ export const POST = requireAuth(async (req, user) => {
       return Response.json({ error: "User message is required" }, { status: 400 });
     }
 
+    // Create tools with user context first (needed for validation)
+    const toolsWithContext = {
+      ...mssqlTools,
+      saveBIConfig: tool({
+        description: "Save a BI dashboard configuration to the database. Call this AFTER you have generated a complete BI config JSON object. You must generate the BI config JSON yourself based on the query results you received from runReadOnlySQLMssql. The config should include widgets with chart types (BarChart, PieChart, LineChart, AreaChart), titles, dataSource URLs, and chart configurations. Once you have the complete config object, call this tool to save it.",
+        inputSchema: z.object({
+          title: z.string().describe("Title for the BI dashboard"),
+          config: z.string().describe("The complete BI configuration JSON object as a string (must be valid JSON matching the BI config schema)"),
+        }),
+        execute: async (args: any) => {
+          // Set userId in request context before calling tool
+          const { setCurrentRequestUserId } = await import("@/lib/bi/query-store");
+          setCurrentRequestUserId(user.id);
+          // Import and call the tool
+          const { biTools } = await import("@/lib/bi/tools");
+          return (biTools.saveBIConfig.execute as any)(args);
+        },
+      }),
+    };
+
     // Validate messages
     let validatedMessages: UIMessage[];
     try {
       validatedMessages = await validateUIMessages({
         messages,
-        tools: tools as any,
+        tools: toolsWithContext as any,
       });
     } catch (error) {
       if (error instanceof TypeValidationError) {
@@ -50,22 +69,16 @@ export const POST = requireAuth(async (req, user) => {
 
     const effective = await getEffectiveOpenAIConfig();
     
-    // Track the last SQL query result
+    // Track the last SQL query result and BI ID
     let lastQueryResult: any[] | null = null;
-    let userQuery = "";
-
-    // Extract user query from messages
-    const lastUserMessage = messages.filter(m => m.role === 'user').pop();
-    if (lastUserMessage) {
-      const parts = (lastUserMessage as any).parts || [];
-      userQuery = parts.find((p: any) => p.type === 'text')?.text || "";
-    }
+    let savedBiId: string | null = null;
+    const { setCurrentRequestQueryData, clearCurrentRequestQueryData } = await import("@/lib/bi/query-store");
 
     const result = streamText({
       model: createOpenAI({ baseURL: effective.baseURL, apiKey: effective.apiKey }).chat("gpt-oss-120b"),
       messages: convertToModelMessages(validatedMessages),
       stopWhen: stepCountIs(10), // Allow more steps for database exploration
-      tools,
+      tools: toolsWithContext,
       system: `You are OrangeAi 🍊, an expert Business Intelligence (BI) dashboard assistant for Microsoft SQL Server (MSSQL).
 
 Your goal is to help users create BI dashboards by:
@@ -82,33 +95,77 @@ Available MSSQL tools (all end with "Mssql"):
 - runReadOnlySQLMssql: Execute a SELECT/CTE query and get results as JSON
 
 Available BI tools:
-- generateBIConfig: Process query results (call this after getting data from runReadOnlySQLMssql)
-- saveBIConfig: Save the final BI dashboard configuration
+- saveBIConfig: Save the final BI dashboard configuration that YOU generate
+
+CRITICAL - BI Config Generation:
+After you receive data from runReadOnlySQLMssql, YOU must generate a complete BI dashboard configuration JSON yourself. 
+
+The BI config structure:
+{
+  "title": "Dashboard Title",
+  "layout": {
+    "columns": 2,
+    "gap": "gap-6",
+    "maxWidth": "max-w-7xl",
+    "centered": true
+  },
+  "widgets": [
+    {
+      "id": "unique-id-1",
+      "type": "BarChart" | "PieChart" | "LineChart" | "AreaChart",
+      "title": "Chart Title",
+      "description": "Optional description",
+      "className": "col-span-2 lg:col-span-1",
+      "options": {
+        "showCard": true,
+        "cardClassName": "bg-white dark:bg-neutral-800 shadow-sm rounded-xl p-4 border border-border",
+        "showLegend": true
+      },
+      "dataSource": {
+        "type": "api",
+        "url": "/api/bi/data/[queryId]"
+      },
+      "chart": {
+        "xKey": "column_name_for_x_axis",
+        "yKey": "column_name_for_y_axis",
+        "yKeys": ["col1", "col2"], // for multiple series
+        "nameKey": "column_name", // for pie charts
+        "valueKey": "column_name", // for pie charts
+        "color": "#4f46e5", // single color
+        "colors": ["#f97316", "#22c55e", "#0ea5e9"] // array of colors
+      }
+    }
+  ]
+}
+
+For dataSource URLs, use placeholder queryId like "/api/bi/data/QUERY_ID_PLACEHOLDER" - the system will replace it.
 
 Workflow:
-1. When user asks for a dashboard, first explore the database structure using listSchemasMssql, listTablesMssql, listColumnsMssql
-2. Once you understand the schema, use runReadOnlySQLMssql to query the data the user wants
-3. After runReadOnlySQLMssql returns data, call generateBIConfig to process it
-4. The system will automatically generate the BI config JSON from the query results
-5. Finally, call saveBIConfig with a good title and the generated config
+1. Explore database: listSchemasMssql → listTablesMssql → listColumnsMssql
+2. Query data: runReadOnlySQLMssql (returns JSON array of rows)
+3. Analyze the data structure and columns
+4. Generate complete BI config JSON yourself based on the data
+5. Call saveBIConfig with title and your generated config
 
 Important:
-- Always use MSSQL tools to explore the database first - don't guess table/column names
-- Make sure your SQL queries return at least 2 columns suitable for charting
-- Return quantitative data that can be visualized
-- The BI config will be generated automatically after you call runReadOnlySQLMssql - you just need to call saveBIConfig with the result
+- Always explore database first - don't guess table/column names
+- SQL queries must return at least 2 columns suitable for charting
+- YOU generate the BI config JSON - don't ask the system to do it
+- Choose appropriate chart types: BarChart for categories, LineChart for time series, PieChart for proportions, AreaChart for cumulative data
+- For dataSource.url, use "/api/bi/data/QUERY_ID_PLACEHOLDER" - it will be replaced automatically
 
-Example flow:
+Example:
 User: "Show me sales by month"
-You: 
+You:
 1. listSchemasMssql
-2. listTablesMssql (to find sales table)
-3. listColumnsMssql (to see what columns exist)
-4. runReadOnlySQLMssql (with query like "SELECT MONTH(date) as month, SUM(amount) as sales FROM sales GROUP BY MONTH(date)")
-5. generateBIConfig (to process the results)
-6. saveBIConfig (with title and config)`,
+2. listTablesMssql
+3. listColumnsMssql (schema, "sales")
+4. runReadOnlySQLMssql: "SELECT MONTH(date) as month, SUM(amount) as sales FROM sales GROUP BY MONTH(date)"
+5. Analyze returned data: [{month: 1, sales: 1000}, {month: 2, sales: 1500}, ...]
+6. Generate BI config JSON with BarChart widget, xKey: "month", yKey: "sales"
+7. saveBIConfig with title "Sales by Month" and your generated config`,
       onStepFinish: async ({ toolCalls, toolResults }) => {
-        // Intercept runReadOnlySQLMssql results
+        // Intercept runReadOnlySQLMssql results and store for tool access
         if (toolResults) {
           for (const toolResult of toolResults) {
             if (toolResult.toolName === 'runReadOnlySQLMssql' && 'result' in toolResult) {
@@ -119,9 +176,22 @@ You:
                   : result;
                 if (Array.isArray(parsed)) {
                   lastQueryResult = parsed;
+                  setCurrentRequestQueryData(parsed);
                 }
               } catch (e) {
                 console.error("Failed to parse query result:", e);
+              }
+            }
+            // Intercept saveBIConfig to get BI ID
+            if (toolResult.toolName === 'saveBIConfig' && 'result' in toolResult) {
+              try {
+                const result = (toolResult as any).result;
+                const parsed = typeof result === 'string' ? JSON.parse(result) : result;
+                if (parsed.biId) {
+                  savedBiId = parsed.biId;
+                }
+              } catch (e) {
+                console.error("Failed to parse saveBIConfig result:", e);
               }
             }
           }
@@ -132,142 +202,24 @@ You:
     // Ensure stream runs to completion
     result.consumeStream();
 
-    // Track BI ID for response
-    let savedBiId: string | null = null;
-
     // Get the response stream
     const response = result.toUIMessageStreamResponse({
       originalMessages: validatedMessages,
       generateMessageId: () => crypto.randomUUID(),
-      onFinish: async ({ responseMessage }) => {
-        // After stream completes, check for SQL query results and generate BI config
-        let queryData: any[] | null = null;
-
-        // Check lastQueryResult from onStepFinish (captured during streaming)
-        if (lastQueryResult) {
-          queryData = lastQueryResult;
-        } else {
-          // Try to extract from response message tool calls
-          if (responseMessage && 'toolCalls' in responseMessage && responseMessage.toolCalls) {
-            // Tool results are not directly available here, so we rely on onStepFinish
-            console.log("Tool calls found but results captured in onStepFinish");
-          }
-        }
-
-        // Generate BI config and save if we have data
-        if (queryData && queryData.length > 0) {
-          try {
-            const columns = Object.keys(queryData[0]);
-            const sampleData = queryData.slice(0, 10);
-
-            // Generate BI config using AI
-            const biConfigResult = await generateObject({
-              model: createOpenAI({ baseURL: effective.baseURL, apiKey: effective.apiKey })("gpt-oss-120b"),
-              system: `You are a Business Intelligence (BI) dashboard configuration expert. Create a JSON configuration for a BI dashboard based on SQL query results.
-
-Available chart types: BarChart, PieChart, LineChart, AreaChart
-
-For layout:
-- Use 2 columns for most dashboards
-- Use 3 columns if you have many small charts
-- Use 1 column if charts need full width
-
-Each widget needs:
-- A unique id
-- A chart type appropriate for the data
-- A title describing what it shows
-- A description (optional)
-- className for responsive layout (e.g., "col-span-2 lg:col-span-1")
-- dataSource with type "api" and url pointing to the data
-- chart configuration with appropriate keys
-
-For chart configuration:
-- BarChart/LineChart/AreaChart: use xKey for x-axis, yKey or yKeys for y-axis
-- PieChart: use nameKey for labels, valueKey for values
-- Use colors array for multiple series`,
-              prompt: `Create a BI dashboard configuration for the following data.
-
-User Query: ${userQuery}
-
-Available Columns: ${columns.join(", ")}
-
-Sample Data (first 10 rows):
-${JSON.stringify(sampleData, null, 2)}
-
-Generate a comprehensive dashboard configuration with appropriate charts.`,
-              schema: biConfigSchema,
-            });
-
-            const biConfig = biConfigResult.object;
-
-            // Store query results and update dataSource URLs
-            const queryId = crypto.randomUUID();
-            const { storeQueryResult } = await import("@/lib/bi/query-store");
-            storeQueryResult(queryId, queryData);
-
-            const updatedWidgets = biConfig.widgets.map((widget) => ({
-              ...widget,
-              dataSource: {
-                type: "api" as const,
-                url: `/api/bi/data/${queryId}`,
-              },
-            }));
-
-            const finalConfig = {
-              ...biConfig,
-              widgets: updatedWidgets,
-            };
-
-            // Save to database
-            const title = biConfig.title || `BI Dashboard - ${new Date().toLocaleDateString()}`;
-            savedBiId = await createBIDashboard(user.id, title, JSON.stringify(finalConfig));
-            
-            console.log('✅ BI Dashboard created with ID:', savedBiId);
-          } catch (error: any) {
-            console.error("Failed to generate/save BI config:", error);
-          }
+      onFinish: async () => {
+        // Clean up request context
+        clearCurrentRequestQueryData();
+        
+        if (savedBiId) {
+          console.log('✅ BI Dashboard created with ID:', savedBiId);
         }
       },
     });
 
-    // Add BI ID to response headers if available
-    // Note: Headers can't be modified after stream starts, so we'll send it in the stream
-    // For now, we'll use a workaround by wrapping the response
-    if (savedBiId) {
-      // We'll need to modify the stream to include the BI ID
-      // For simplicity, let's add it as a custom header before returning
-      // But since it's async, we'll send it via a special message in the stream
-      const originalBody = response.body;
-      if (originalBody) {
-        const reader = originalBody.getReader();
-        const stream = new ReadableStream({
-          async start(controller) {
-            // First, send a special control message with BI ID
-            const encoder = new TextEncoder();
-            const biIdMessage = `0:{"type":"bi-id","biId":"${savedBiId}"}\n`;
-            controller.enqueue(encoder.encode(biIdMessage));
-            
-            // Then, forward the original stream
-            while (true) {
-              const { done, value } = await reader.read();
-              if (done) {
-                controller.close();
-                break;
-              }
-              controller.enqueue(value);
-            }
-          },
-        });
-        
-        return new Response(stream, {
-          headers: {
-            ...Object.fromEntries(response.headers.entries()),
-            'Content-Type': 'text/plain; charset=utf-8',
-          },
-        });
-      }
-    }
-
+    // Store savedBiId in response metadata for client to access
+    // We'll check for it in the stream by intercepting saveBIConfig tool results
+    // The client will parse the stream to find the BI ID
+    
     return response;
   } catch (error: any) {
     console.error("BI Chat API Error:", error);
