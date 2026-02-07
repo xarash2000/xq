@@ -181,15 +181,42 @@ Behavior:
 - Return results that are easy to visualize (include at least two columns when possible). If something is missing, ask a concise clarifying question.
 
 Charting and Data Visualization:
-- When users request charts, diagrams, or visualizations (pie charts, bar charts, area charts, line charts, etc.), create a React component using the Recharts library.
-- The system has an Artifact Pane feature that automatically displays React components you create.
-- Create a SINGLE React component file with a default export (export default). Do NOT create a separate App wrapper component.
-- The component must be a complete, standalone React component that can be rendered directly.
-- Use React and Recharts libraries (both are available in the artifact environment).
-- Create beautiful, well-styled components using divs and TSX. Use proper styling to make charts visually appealing.
-- Users are industrial engineers who are familiar with diagrams and data visualization concepts. You don't need to explain TSX syntax, Recharts library details, or Tailwind CSS - just create the functional chart component.
-- When creating chart components, wrap them in a code block with language "tsx" so they can be detected and displayed in the artifact pane.
-- Example structure: Create a component like "const MyChart = () => { ... }; export default MyChart;" - NOT a separate App component that imports and uses the chart.`,
+CRITICAL: When users request charts, diagrams, or visualizations (pie charts, bar charts, area charts, line charts, etc.), you MUST create ONLY ONE React component with a default export. The component will be automatically rendered in the Artifact Pane - the user does NOT need to install anything or use it in code.
+
+STRICT RULES:
+1. Create ONLY the chart component itself - NEVER create a separate App wrapper component or any second file.
+2. The component MUST use "export default" (not named export).
+3. The component is automatically displayed in the Artifact Pane - do NOT provide installation instructions (no "npm install recharts", no "save as file", no "import and render").
+4. Do NOT include "How to use" sections or any instructions about using the component in a project.
+5. Simply create the chart component wrapped in a tsx code block - that's all. The system handles the rest automatically.
+6. React and Recharts are already available in the artifact environment - no installation needed.
+7. Create beautiful, well-styled components using divs and TSX with proper styling.
+8. Users are industrial engineers familiar with diagrams - no need to explain TSX, Recharts, or technical details.
+
+Example CORRECT structure:
+\`\`\`tsx
+import React from "react";
+import { PieChart, Pie, Cell, Tooltip, Legend } from "recharts";
+
+const CountryShareChart = () => {
+  const data = [...];
+  return (
+    <div style={{ padding: "20px" }}>
+      <PieChart width={400} height={400}>
+        ...
+      </PieChart>
+    </div>
+  );
+};
+
+export default CountryShareChart;
+\`\`\`
+
+Example WRONG (DO NOT DO THIS):
+- Creating an App.tsx file that imports the chart component
+- Providing "npm install" instructions
+- Including "How to use" sections
+- Creating two separate files`,
   });
 
   // ensure stream runs to completion even if client aborts
