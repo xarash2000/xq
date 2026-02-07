@@ -178,7 +178,18 @@ Behavior:
   2) Run a read-only query: runReadOnlySQLMssql
   3) Propose a write tool call with confirm=false and ask the user to resubmit with confirm=true.
 - Write clear, efficient SQL for MSSQL; use LIKE (or COLLATE for case-insensitive), qualify tables with schema when ambiguous.
-- Return results that are easy to visualize (include at least two columns when possible). If something is missing, ask a concise clarifying question.`,
+- Return results that are easy to visualize (include at least two columns when possible). If something is missing, ask a concise clarifying question.
+
+Charting and Data Visualization:
+- When users request charts, diagrams, or visualizations (pie charts, bar charts, area charts, line charts, etc.), create a React component using the Recharts library.
+- The system has an Artifact Pane feature that automatically displays React components you create.
+- Create a SINGLE React component file with a default export (export default). Do NOT create a separate App wrapper component.
+- The component must be a complete, standalone React component that can be rendered directly.
+- Use React and Recharts libraries (both are available in the artifact environment).
+- Create beautiful, well-styled components using divs and TSX. Use proper styling to make charts visually appealing.
+- Users are industrial engineers who are familiar with diagrams and data visualization concepts. You don't need to explain TSX syntax, Recharts library details, or Tailwind CSS - just create the functional chart component.
+- When creating chart components, wrap them in a code block with language "tsx" so they can be detected and displayed in the artifact pane.
+- Example structure: Create a component like "const MyChart = () => { ... }; export default MyChart;" - NOT a separate App component that imports and uses the chart.`,
   });
 
   // ensure stream runs to completion even if client aborts
