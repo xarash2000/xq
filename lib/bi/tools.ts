@@ -5,7 +5,7 @@ import { prisma } from "@/lib/db";
 
 export const biTools = {
   saveBIConfig: tool({
-    description: "Save a BI dashboard configuration to the database. Call this AFTER you have generated a complete BI config JSON object. You must generate the BI config JSON yourself based on the query results you received from runReadOnlySQLMssql. The config should include widgets with chart types (BarChart, PieChart, LineChart, AreaChart), titles, dataSource URLs, and chart configurations. Once you have the complete config object, call this tool to save it.",
+    description: "🚨 CRITICAL: Call this IMMEDIATELY after runReadOnlySQLMssql returns data. DO NOT write any text first - call this tool directly. Save a BI dashboard configuration to the database. You must generate the complete BI config JSON yourself based on the query results from runReadOnlySQLMssql. The config should include widgets with chart types (BarChart, PieChart, LineChart, AreaChart), titles, dataSource with type 'json' and embedded data array, and chart configurations. Call this tool IMMEDIATELY after receiving query results - no text output before calling.",
     inputSchema: z.object({
       title: z.string().describe("Title for the BI dashboard"),
       config: z.string().describe("The complete BI configuration JSON object as a string (must be valid JSON matching the BI config schema)"),
