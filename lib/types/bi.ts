@@ -14,11 +14,17 @@ export const biChartConfigSchema = z.object({
   colors: z.array(z.string()).optional().describe("Array of colors for chart elements"),
 });
 
-// Data source schema
-export const biDataSourceSchema = z.object({
-  type: z.literal("api"),
-  url: z.string(),
-});
+// Data source schema - supports both API endpoints and embedded JSON data
+export const biDataSourceSchema = z.discriminatedUnion("type", [
+  z.object({
+    type: z.literal("api"),
+    url: z.string(),
+  }),
+  z.object({
+    type: z.literal("json"),
+    data: z.array(z.any()),
+  }),
+]);
 
 // Widget options schema
 export const biWidgetOptionsSchema = z.object({

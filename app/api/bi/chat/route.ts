@@ -122,8 +122,8 @@ The BI config structure:
         "showLegend": true
       },
       "dataSource": {
-        "type": "api",
-        "url": "/api/bi/data/[queryId]"
+        "type": "json",
+        "data": [{"column1": "value1", "column2": 100}, ...]
       },
       "chart": {
         "xKey": "column_name_for_x_axis",
@@ -138,7 +138,10 @@ The BI config structure:
   ]
 }
 
-For dataSource URLs, use placeholder queryId like "/api/bi/data/QUERY_ID_PLACEHOLDER" - the system will replace it.
+For dataSource, use the data you received from runReadOnlySQLMssql directly:
+- Set type to "json"
+- Set data to the array of results from runReadOnlySQLMssql
+- Example: if runReadOnlySQLMssql returned [{"month": 1, "sales": 1000}, {"month": 2, "sales": 1500}], use that exact array in dataSource.data
 
 Workflow:
 1. Explore database: listSchemasMssql → listTablesMssql → listColumnsMssql
@@ -174,7 +177,8 @@ Important:
 - SQL queries must return at least 2 columns suitable for charting
 - YOU generate the BI config JSON - don't ask the system to do it
 - Choose appropriate chart types: BarChart for categories, LineChart for time series, PieChart for proportions, AreaChart for cumulative data
-- For dataSource.url, use "/api/bi/data/QUERY_ID_PLACEHOLDER" - it will be replaced automatically
+- For dataSource, embed the query results directly: { "type": "json", "data": [your query results array] }
+- The data from runReadOnlySQLMssql should be embedded directly in the dataSource.data field
 - **MOST IMPORTANT: After generating config, IMMEDIATELY call saveBIConfig tool - do not explain or describe, just call it**
 
 Example:
@@ -185,7 +189,7 @@ You:
 3. listColumnsMssql (schema, "sales")
 4. runReadOnlySQLMssql: "SELECT MONTH(date) as month, SUM(amount) as sales FROM sales GROUP BY MONTH(date)"
 5. Analyze returned data: [{month: 1, sales: 1000}, {month: 2, sales: 1500}, ...]
-6. Generate BI config JSON object
+6. Generate BI config JSON object with dataSource: { "type": "json", "data": [the exact array from step 5] }
 7. **IMMEDIATELY call saveBIConfig tool with title="Sales by Month" and config=JSON.stringify(yourConfigObject)**`,
       onStepFinish: async ({ toolCalls, toolResults }) => {
         // Intercept runReadOnlySQLMssql results and store for tool access

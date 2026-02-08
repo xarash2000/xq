@@ -22,12 +22,23 @@ export function WidgetRenderer({ widget }: Props) {
       try {
         setLoading(true);
         setError(null);
-        const res = await fetch(widget.dataSource.url);
-        if (!res.ok) {
-          throw new Error(`Failed to load data: ${res.statusText}`);
+        
+        // Handle json dataSource type (embedded data)
+        if (widget.dataSource.type === "json") {
+          setData(widget.dataSource.data);
+          setLoading(false);
+          return;
         }
-        const json = await res.json();
-        setData(json);
+        
+        // Handle api dataSource type (fetch from URL)
+        if (widget.dataSource.type === "api") {
+          const res = await fetch(widget.dataSource.url);
+          if (!res.ok) {
+            throw new Error(`Failed to load data: ${res.statusText}`);
+          }
+          const json = await res.json();
+          setData(json);
+        }
       } catch (err: any) {
         setError(err.message || "Failed to load data");
         console.error("Failed to load widget data:", err);
@@ -36,7 +47,7 @@ export function WidgetRenderer({ widget }: Props) {
       }
     }
     load();
-  }, [widget.dataSource.url]);
+  }, [widget.dataSource]);
 
   const content = (() => {
     if (loading) {

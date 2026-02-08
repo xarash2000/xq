@@ -20,30 +20,28 @@ export const biTools = {
       }
       const validatedConfig = biConfigSchema.parse(configObj);
       try {
-        // Store query results if we have them
-        let queryId: string | null = null;
-        const { storeQueryResult, getStoredQueryData, getCurrentRequestUserId } = await import("@/lib/bi/query-store");
-        
-        // Try to get stored query data (set by API route)
+        // Get query data and userId from request context
+        const { getStoredQueryData, getCurrentRequestUserId } = await import("@/lib/bi/query-store");
         const queryData = getStoredQueryData();
-        if (queryData) {
-          queryId = crypto.randomUUID();
-          storeQueryResult(queryId, queryData);
-        }
-
-        // Get userId from request context
         const userId = getCurrentRequestUserId();
 
-        // Replace placeholder queryId in dataSource URLs
+        // Embed query data directly in widgets as JSON dataSource
         const updatedConfig = {
           ...validatedConfig,
-          widgets: validatedConfig.widgets.map((widget: any) => ({
-            ...widget,
-            dataSource: {
-              type: "api" as const,
-              url: widget.dataSource?.url?.replace("QUERY_ID_PLACEHOLDER", queryId || "unknown") || `/api/bi/data/${queryId || "unknown"}`,
-            },
-          })),
+          widgets: validatedConfig.widgets.map((widget: any) => {
+            // If we have query data, embed it directly as JSON
+            if (queryData && Array.isArray(queryData) && queryData.length > 0) {
+              return {
+                ...widget,
+                dataSource: {
+                  type: "json" as const,
+                  data: queryData,
+                },
+              };
+            }
+            // Fallback: if no query data, keep existing dataSource (for backward compatibility)
+            return widget;
+          }),
         };
 
         const biDashboard = await (prisma as any).bIDashboard.create({

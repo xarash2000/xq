@@ -57,6 +57,7 @@ export default function BIPageRoute() {
       const decoder = new TextDecoder();
       let biId: string | null = null;
       let fullStream = "";
+      let saveBIConfigToolCallId: string | null = null;
 
       if (reader) {
         while (true) {
@@ -74,8 +75,13 @@ export default function BIPageRoute() {
             try {
               const data = JSON.parse(line.slice(6)); // Remove "data: " prefix
               
-              // Look for tool-output-available events with saveBIConfig
-              if (data.type === 'tool-output-available' && data.toolName === 'saveBIConfig') {
+              // Track toolCallId when saveBIConfig tool input starts
+              if (data.type === 'tool-input-start' && data.toolName === 'saveBIConfig') {
+                saveBIConfigToolCallId = data.toolCallId;
+              }
+              
+              // Look for tool-output-available events matching the saveBIConfig toolCallId
+              if (data.type === 'tool-output-available' && data.toolCallId === saveBIConfigToolCallId) {
                 try {
                   // The output is a JSON string, parse it
                   const output = typeof data.output === 'string' 
@@ -87,8 +93,10 @@ export default function BIPageRoute() {
                     break;
                   }
                 } catch (e) {
-                  // If parsing fails, try direct extraction
-                  const biIdMatch = data.output?.match(/"biId"\s*:\s*"([^"]+)"/);
+                  // If parsing fails, try direct extraction from the output string
+                  const biIdMatch = typeof data.output === 'string' 
+                    ? data.output.match(/"biId"\s*:\s*"([^"]+)"/)
+                    : null;
                   if (biIdMatch && biIdMatch[1]) {
                     biId = biIdMatch[1];
                     break;
