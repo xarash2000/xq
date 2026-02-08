@@ -66,8 +66,30 @@ export default function BIPageRoute() {
           const chunk = decoder.decode(value, { stream: true });
           fullStream += chunk;
           
-          // Look for saveBIConfig tool result in the stream
-          // The stream format includes tool results, look for "biId" in saveBIConfig results
+          // Look for tool-output-available events with saveBIConfig
+          // The stream format: data: {"type":"tool-output-available","toolCallId":"...","toolName":"saveBIConfig","output":"..."}
+          // The output contains JSON with biId
+          const toolOutputMatch = chunk.match(/tool-output-available.*?"toolName":"saveBIConfig".*?"output":"([^"]+)"/);
+          if (toolOutputMatch) {
+            try {
+              // The output is JSON stringified, so we need to unescape and parse
+              const outputStr = toolOutputMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
+              const output = JSON.parse(outputStr);
+              if (output.biId) {
+                biId = output.biId;
+                break;
+              }
+            } catch (e) {
+              // Try to extract biId directly from the string
+              const biIdMatch = chunk.match(/"biId"\s*:\s*"([^"]+)"/);
+              if (biIdMatch && biIdMatch[1]) {
+                biId = biIdMatch[1];
+                break;
+              }
+            }
+          }
+          
+          // Also try direct pattern matching in the full stream
           const biIdPatterns = [
             /"biId"\s*:\s*"([^"]+)"/,  // Direct biId match
             /saveBIConfig.*?"biId"\s*:\s*"([^"]+)"/,  // In saveBIConfig context
@@ -91,16 +113,15 @@ export default function BIPageRoute() {
         return;
       }
 
-      // If no BI ID found, the AI might still be processing
-      // Wait a bit and check if we can extract it from the full stream
-      setTimeout(() => {
-        const finalMatch = fullStream.match(/"biId"\s*:\s*"([^"]+)"/);
-        if (finalMatch && finalMatch[1]) {
-          router.push(`/bi/${finalMatch[1]}`);
-        } else {
-          setError("Dashboard generation completed. If a dashboard was created, check your recent dashboards or try again.");
-        }
-      }, 1000);
+      // If no BI ID found, check the full stream one more time
+      const finalMatch = fullStream.match(/"biId"\s*:\s*"([^"]+)"/);
+      if (finalMatch && finalMatch[1]) {
+        router.push(`/bi/${finalMatch[1]}`);
+        return;
+      }
+
+      // If still no BI ID, the tool might not have been called
+      setError("Dashboard generation completed, but saveBIConfig tool was not called. The AI may need to be more explicit about calling the tool.");
 
     } catch (error: any) {
       console.error("Failed to generate BI dashboard:", error);

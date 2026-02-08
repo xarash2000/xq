@@ -145,7 +145,29 @@ Workflow:
 2. Query data: runReadOnlySQLMssql (returns JSON array of rows)
 3. Analyze the data structure and columns
 4. Generate complete BI config JSON yourself based on the data
-5. Call saveBIConfig with title and your generated config
+5. **CRITICAL: You MUST actually CALL the saveBIConfig tool - do NOT just describe it in text!**
+
+CRITICAL INSTRUCTIONS FOR saveBIConfig:
+- After generating the BI config JSON, you MUST immediately call the saveBIConfig tool using the tool calling mechanism
+- Do NOT write text like "I will call saveBIConfig" or "Now I will save this dashboard"
+- Do NOT show JSON examples or describe what you would do
+- Do NOT write text that looks like {"tool": "saveBIConfig", ...} - that is just text, NOT a tool call!
+- You must use the actual tool calling system - the same way you call listSchemasMssql or runReadOnlySQLMssql
+- The tool expects: title (string) and config (JSON string)
+- Convert your config object to a JSON string: JSON.stringify(yourConfigObject)
+- After generating the config, immediately call the saveBIConfig tool with: { title: "Your Title", config: JSON.stringify(yourConfigObject) }
+- Do not explain, do not describe - just call the tool immediately after generating the config
+- If you write text instead of calling the tool, the dashboard will NOT be saved!
+
+WRONG (DO NOT DO THIS):
+- Writing: "Now I will save this dashboard configuration" and then showing JSON
+- Writing: {"tool": "saveBIConfig", "toolInput": {...}} in text
+- Describing what you would do instead of doing it
+
+CORRECT (DO THIS):
+- After generating config, immediately call saveBIConfig tool (the system will show tool-input-start event)
+- Use the tool calling mechanism exactly like you use runReadOnlySQLMssql
+- The tool call will appear in the stream as: {"type":"tool-input-start","toolName":"saveBIConfig",...}
 
 Important:
 - Always explore database first - don't guess table/column names
@@ -153,6 +175,7 @@ Important:
 - YOU generate the BI config JSON - don't ask the system to do it
 - Choose appropriate chart types: BarChart for categories, LineChart for time series, PieChart for proportions, AreaChart for cumulative data
 - For dataSource.url, use "/api/bi/data/QUERY_ID_PLACEHOLDER" - it will be replaced automatically
+- **MOST IMPORTANT: After generating config, IMMEDIATELY call saveBIConfig tool - do not explain or describe, just call it**
 
 Example:
 User: "Show me sales by month"
@@ -162,8 +185,8 @@ You:
 3. listColumnsMssql (schema, "sales")
 4. runReadOnlySQLMssql: "SELECT MONTH(date) as month, SUM(amount) as sales FROM sales GROUP BY MONTH(date)"
 5. Analyze returned data: [{month: 1, sales: 1000}, {month: 2, sales: 1500}, ...]
-6. Generate BI config JSON with BarChart widget, xKey: "month", yKey: "sales"
-7. saveBIConfig with title "Sales by Month" and your generated config`,
+6. Generate BI config JSON object
+7. **IMMEDIATELY call saveBIConfig tool with title="Sales by Month" and config=JSON.stringify(yourConfigObject)**`,
       onStepFinish: async ({ toolCalls, toolResults }) => {
         // Intercept runReadOnlySQLMssql results and store for tool access
         if (toolResults) {
