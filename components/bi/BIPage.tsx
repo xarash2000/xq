@@ -7,7 +7,7 @@ import { BIChatInput } from "./BIChatInput";
 
 interface Props {
   config: BIConfig | null;
-  onConfigUpdate: (config: BIConfig) => void;
+  onConfigUpdate?: (config: BIConfig) => void;
   loading?: boolean;
 }
 
@@ -29,7 +29,7 @@ export function BIPage({ config, onConfigUpdate, loading }: Props) {
               Start by asking a question to generate your first dashboard
             </p>
           </div>
-          <BIChatInput onConfigGenerated={onConfigUpdate} />
+          <BIChatInput onConfigGenerated={onConfigUpdate || (() => {})} />
         </div>
       </div>
     );
@@ -84,7 +84,7 @@ export function BIPage({ config, onConfigUpdate, loading }: Props) {
       {/* Fixed chat input at bottom right */}
       <div className="fixed bottom-6 right-6 z-50">
         <BIChatInput
-          onConfigGenerated={onConfigUpdate}
+          onConfigGenerated={onConfigUpdate || (() => {})}
           currentConfig={config}
           compact
         />

@@ -20,11 +20,6 @@ export default async function BIDashboardPage({ params }: Props) {
     return (
       <BIPage
         config={config}
-        onConfigUpdate={(newConfig) => {
-          // Config updates would require a new dashboard or update endpoint
-          // For now, this is read-only - updates create new dashboards
-          console.log("Config update requested (not implemented for existing dashboards)");
-        }}
         loading={false}
       />
     );

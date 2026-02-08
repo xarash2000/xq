@@ -66,39 +66,45 @@ export default function BIPageRoute() {
           const chunk = decoder.decode(value, { stream: true });
           fullStream += chunk;
           
-          // Look for tool-output-available events with saveBIConfig
-          // The stream format: data: {"type":"tool-output-available","toolCallId":"...","toolName":"saveBIConfig","output":"..."}
-          // The output contains JSON with biId
-          const toolOutputMatch = chunk.match(/tool-output-available.*?"toolName":"saveBIConfig".*?"output":"([^"]+)"/);
-          if (toolOutputMatch) {
+          // Parse each line of the stream (format: data: {...})
+          const lines = chunk.split('\n');
+          for (const line of lines) {
+            if (!line.startsWith('data: ')) continue;
+            
             try {
-              // The output is JSON stringified, so we need to unescape and parse
-              const outputStr = toolOutputMatch[1].replace(/\\"/g, '"').replace(/\\n/g, '\n');
-              const output = JSON.parse(outputStr);
-              if (output.biId) {
-                biId = output.biId;
-                break;
+              const data = JSON.parse(line.slice(6)); // Remove "data: " prefix
+              
+              // Look for tool-output-available events with saveBIConfig
+              if (data.type === 'tool-output-available' && data.toolName === 'saveBIConfig') {
+                try {
+                  // The output is a JSON string, parse it
+                  const output = typeof data.output === 'string' 
+                    ? JSON.parse(data.output) 
+                    : data.output;
+                  
+                  if (output.biId) {
+                    biId = output.biId;
+                    break;
+                  }
+                } catch (e) {
+                  // If parsing fails, try direct extraction
+                  const biIdMatch = data.output?.match(/"biId"\s*:\s*"([^"]+)"/);
+                  if (biIdMatch && biIdMatch[1]) {
+                    biId = biIdMatch[1];
+                    break;
+                  }
+                }
               }
             } catch (e) {
-              // Try to extract biId directly from the string
-              const biIdMatch = chunk.match(/"biId"\s*:\s*"([^"]+)"/);
-              if (biIdMatch && biIdMatch[1]) {
-                biId = biIdMatch[1];
-                break;
-              }
+              // Not valid JSON, continue
             }
           }
           
-          // Also try direct pattern matching in the full stream
-          const biIdPatterns = [
-            /"biId"\s*:\s*"([^"]+)"/,  // Direct biId match
-            /saveBIConfig.*?"biId"\s*:\s*"([^"]+)"/,  // In saveBIConfig context
-          ];
-          
-          for (const pattern of biIdPatterns) {
-            const match = fullStream.match(pattern);
-            if (match && match[1]) {
-              biId = match[1];
+          // Also try direct pattern matching in the full stream as fallback
+          if (!biId) {
+            const biIdMatch = fullStream.match(/"biId"\s*:\s*"([a-zA-Z0-9-]{20,})"/);
+            if (biIdMatch && biIdMatch[1]) {
+              biId = biIdMatch[1];
               break;
             }
           }
@@ -120,8 +126,8 @@ export default function BIPageRoute() {
         return;
       }
 
-      // If still no BI ID, the tool might not have been called
-      setError("Dashboard generation completed, but saveBIConfig tool was not called. The AI may need to be more explicit about calling the tool.");
+      // If still no BI ID, we couldn't extract it from the stream
+      setError("Dashboard generation completed, but we couldn't extract the BI ID from the response. The dashboard may have been created - please check the URL or try again.");
 
     } catch (error: any) {
       console.error("Failed to generate BI dashboard:", error);
